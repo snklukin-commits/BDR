@@ -10,6 +10,7 @@
   function number(value){ if(typeof value === 'number') return value; if(value == null) return 0; return Number(String(value).replace(/\s| /g,'').replace(',','.').replace(/[₽р]/gi,'')) || 0; }
   function round(value){ return Math.round((Number(value) || 0) * 100) / 100; }
   function escapeHtml(value){ return String(value ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
+  function clean(value){ return String(value ?? '').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim(); }
   function dateText(value){ const text = String(value || '').slice(0,10); const m = text.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[3]}.${m[2]}.${m[1].slice(2)}` : (text || '—'); }
   function addMonths(dateString, months){ const source = dateString || new Date().toISOString().slice(0,10); const date = new Date(source + 'T00:00:00'); date.setMonth(date.getMonth() + months); return date.toISOString().slice(0,10); }
   function monthKey(dateString){ return String(dateString || '').slice(0,7); }
@@ -48,7 +49,14 @@
       payment: number(raw.payment),
       firstPaymentDate: raw.firstPaymentDate || addMonths(startDate, 1),
       strategy: raw.strategy || raw.prepaymentStrategy || 'term',
-      prepayments: (raw.prepayments || []).map(p => ({id:p.id || uid(), date:p.date || new Date().toISOString().slice(0,10), amount:number(p.amount), type:p.type || 'term', comment:p.comment || ''}))
+      prepayments: (raw.prepayments || []).map(p => ({
+        id: p.id || uid(),
+        date: p.date || new Date().toISOString().slice(0,10),
+        amount: number(p.amount),
+        type: p.type || 'term',
+        comment: p.comment || '',
+        sourceOperationId: p.sourceOperationId || ''
+      }))
     };
   }
 
@@ -138,17 +146,17 @@
       <label>Стратегия досрочных<select id="creditStrategy"><option value="term" ${credit.strategy === 'term' ? 'selected' : ''}>Сокращать срок</option><option value="payment" ${credit.strategy === 'payment' ? 'selected' : ''}>Сокращать платёж</option></select></label>
     </div>`;
   }
-  function prepaymentForm(){
-    return `<div class="rule-card"><div class="toolbar">
+  function manualPrepaymentForm(){
+    return `<details class="rule-card"><summary style="font-weight:900;cursor:pointer">Добавить вручную, если операции нет в выписке</summary><div class="toolbar" style="margin-top:12px">
       <input id="prepayDate" type="date" value="${new Date().toISOString().slice(0,10)}">
       <input id="prepayAmount" inputmode="decimal" placeholder="Сумма досрочного">
       <select id="prepayType"><option value="term">Сократить срок</option><option value="payment">Сократить платёж</option></select>
       <input id="prepayComment" placeholder="Комментарий">
-      <button id="addPrepayment" class="primary">Добавить досрочное</button>
-    </div></div>`;
+      <button id="addPrepayment" class="primary">Добавить вручную</button>
+    </div></details>`;
   }
   function prepaymentTable(credit){
-    const rows = credit.prepayments.slice().sort((a,b) => String(a.date).localeCompare(String(b.date))).map(p => `<tr><td>${dateText(p.date)}</td><td>${money(p.amount)}</td><td>${p.type === 'payment' ? 'Сокращение платежа' : 'Сокращение срока'}</td><td>${escapeHtml(p.comment)}</td><td><button class="danger" data-delete-prepayment="${p.id}">Удалить</button></td></tr>`);
+    const rows = credit.prepayments.slice().sort((a,b) => String(a.date).localeCompare(String(b.date))).map(p => `<tr><td>${dateText(p.date)}</td><td>${money(p.amount)}</td><td>${p.type === 'payment' ? 'Сокращение платежа' : 'Сокращение срока'}</td><td>${escapeHtml(p.comment)}${p.sourceOperationId ? '<br><span class="muted small">из транзакции</span>' : ''}</td><td><button class="danger" data-delete-prepayment="${p.id}">Удалить</button></td></tr>`);
     return table(['Дата','Сумма','Тип','Комментарий',''], rows, 'Досрочных погашений нет');
   }
   function scheduleTable(schedule){
@@ -156,6 +164,22 @@
     return table(['№','Дата','Платёж','Проценты','Тело','Досрочно','Остаток'], rows, 'График пуст');
   }
   function creditOperations(state){ return (state.operations || []).filter(op => ['Кредиты/ипотека','Ипотека/жильё: справочно'].includes(op.category)); }
+  function isExpenseCreditOperation(op){ return ['Кредиты/ипотека','Ипотека/жильё: справочно'].includes(op.category) && number(op.amount) < 0; }
+  function candidateTransactions(state, credit){
+    const used = new Set((credit.prepayments || []).map(p => p.sourceOperationId).filter(Boolean));
+    return (state.operations || [])
+      .filter(op => isExpenseCreditOperation(op))
+      .filter(op => !used.has(op.id))
+      .sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, 120);
+  }
+  function transactionPicker(state, credit){
+    const rows = candidateTransactions(state, credit).map(op => {
+      const defaultType = clean([op.description, op.bankCategory, op.sourceType].join(' ')).includes('платеж') ? 'term' : 'term';
+      return `<tr><td>${dateText(op.date)}</td><td>${escapeHtml(op.description || 'Без описания')}</td><td>${money(Math.abs(number(op.amount)))}</td><td><select data-prepay-type="${op.id}"><option value="term" ${defaultType === 'term' ? 'selected' : ''}>Сократить срок</option><option value="payment">Сократить платёж</option></select></td><td><button class="primary" data-add-from-operation="${op.id}">Добавить</button></td></tr>`;
+    });
+    return `<h3>Выбрать досрочное из транзакций</h3><p class="muted small">Выбирай здесь фактическую банковскую операцию досрочного погашения. Она привяжется к кредиту и больше не будет предлагаться повторно.</p>${table(['Дата','Описание','Сумма','Тип',''], rows, 'Нет доступных кредитных транзакций для выбора')}`;
+  }
 
   function renderCredits(){
     const root = document.getElementById('credits');
@@ -170,7 +194,7 @@
     root.innerHTML = `
       <div class="card white"><h3>Кредитный калькулятор</h3><div class="toolbar"><select id="creditSelect">${creditOptions(state.credits, selected.id)}</select><button id="newCredit">Новый кредит</button><button id="deleteCredit" class="danger">Удалить</button></div>${form(selected)}<div class="toolbar"><button id="saveCredit" class="primary">Сохранить и пересчитать</button></div></div>
       <div class="grid"><div class="card"><div class="kpi-title">Платёж</div><div class="value">${money(result.payment)}</div></div><div class="card"><div class="kpi-title">Закрытие</div><div class="value">${result.monthsToClose} мес.</div><div class="muted small">${dateText(result.closeDate)}</div></div><div class="card"><div class="kpi-title">Проценты банку</div><div class="value">${money(result.totalInterest)}</div></div><div class="card"><div class="kpi-title">Экономия</div><div class="value good">${money(result.savings)}</div></div></div>
-      <div class="grid2"><div class="card"><h3>Полная стоимость</h3>${table(['Показатель','Сумма'], [['Стоимость объекта', money(selected.objectCost)],['Первоначальный взнос', money(selected.downPayment)],['Сумма кредита', money(selected.principal)],['Расчётный остаток', money(result.remaining)],['Всего выплат банку', money(result.totalBankPaid)],['Проценты банку', money(result.totalInterest)],['Полная стоимость для меня', money(result.fullCost)]].map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`))}</div><div class="card"><h3>Досрочные погашения</h3>${prepaymentForm()}${prepaymentTable(selected)}</div></div>
+      <div class="grid2"><div class="card"><h3>Полная стоимость</h3>${table(['Показатель','Сумма'], [['Стоимость объекта', money(selected.objectCost)],['Первоначальный взнос', money(selected.downPayment)],['Сумма кредита', money(selected.principal)],['Расчётный остаток', money(result.remaining)],['Всего выплат банку', money(result.totalBankPaid)],['Проценты банку', money(result.totalInterest)],['Полная стоимость для меня', money(result.fullCost)]].map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`))}</div><div class="card">${transactionPicker(state, selected)}${manualPrepaymentForm()}<h3>Добавленные досрочные</h3>${prepaymentTable(selected)}</div></div>
       <div class="card"><h3>График платежей</h3>${scheduleTable(result.schedule)}</div>
       <div class="card"><h3>Операции по кредитам</h3>${table(['Дата','Описание','Сумма'], operations.map(op => `<tr><td>${dateText(op.date)}</td><td>${escapeHtml(op.description)}</td><td>${money(op.amount)}</td></tr>`), 'Кредитных операций нет')}</div>`;
     bindEvents(state, selected);
@@ -190,13 +214,37 @@
     credit.payment = number(document.getElementById('creditPayment').value);
     credit.strategy = document.getElementById('creditStrategy').value;
   }
+  function addPrepaymentFromOperation(state, credit, operationId){
+    const op = (state.operations || []).find(item => String(item.id) === String(operationId));
+    if(!op) return alert('Транзакция не найдена');
+    const typeSelect = document.querySelector(`[data-prepay-type="${CSS.escape(operationId)}"]`);
+    const type = typeSelect ? typeSelect.value : 'term';
+    const amount = Math.abs(number(op.amount));
+    if(amount <= 0) return alert('У транзакции нет суммы');
+    credit.prepayments.push({
+      id: uid(),
+      date: op.date || new Date().toISOString().slice(0,10),
+      amount,
+      type,
+      comment: op.description || 'Досрочное из транзакции',
+      sourceOperationId: op.id
+    });
+    op.creditId = credit.id;
+    op.creditRole = 'prepayment';
+    op.prepaymentType = type;
+    op.includeTotals = false;
+    op.block = 'Кредиты';
+    saveState(state);
+    renderCredits();
+  }
   function bindEvents(state, credit){
     document.getElementById('creditSelect').onchange = event => { selectedCreditId = event.target.value; localStorage.setItem('bdr.selected.credit', selectedCreditId); renderCredits(); };
     document.getElementById('newCredit').onclick = () => { const item = normalizeCredit({name:'Новый кредит', type:'Ипотека', annualRate:18.5, months:180}); state.credits.push(item); selectedCreditId = item.id; saveState(state); renderCredits(); };
     document.getElementById('deleteCredit').onclick = () => { if(state.credits.length <= 1) return alert('Нельзя удалить последний кредит'); if(!confirm('Удалить этот кредит?')) return; state.credits = state.credits.filter(item => item.id !== credit.id); selectedCreditId = state.credits[0].id; saveState(state); renderCredits(); };
     document.getElementById('saveCredit').onclick = () => { updateCreditFromForm(credit); saveState(state); renderCredits(); };
-    document.getElementById('addPrepayment').onclick = () => { const amount = number(document.getElementById('prepayAmount').value); if(amount <= 0) return alert('Укажи сумму досрочного погашения'); credit.prepayments.push({id:uid(), date:document.getElementById('prepayDate').value || new Date().toISOString().slice(0,10), amount, type:document.getElementById('prepayType').value, comment:document.getElementById('prepayComment').value || ''}); saveState(state); renderCredits(); };
-    document.querySelectorAll('[data-delete-prepayment]').forEach(button => { button.onclick = () => { credit.prepayments = credit.prepayments.filter(item => item.id !== button.dataset.deletePrepayment); saveState(state); renderCredits(); }; });
+    document.getElementById('addPrepayment').onclick = () => { const amount = number(document.getElementById('prepayAmount').value); if(amount <= 0) return alert('Укажи сумму досрочного погашения'); credit.prepayments.push({id:uid(), date:document.getElementById('prepayDate').value || new Date().toISOString().slice(0,10), amount, type:document.getElementById('prepayType').value, comment:document.getElementById('prepayComment').value || '', sourceOperationId:''}); saveState(state); renderCredits(); };
+    document.querySelectorAll('[data-add-from-operation]').forEach(button => { button.onclick = () => addPrepaymentFromOperation(state, credit, button.dataset.addFromOperation); });
+    document.querySelectorAll('[data-delete-prepayment]').forEach(button => { button.onclick = () => { const removed = credit.prepayments.find(item => item.id === button.dataset.deletePrepayment); credit.prepayments = credit.prepayments.filter(item => item.id !== button.dataset.deletePrepayment); if(removed && removed.sourceOperationId){ const op = (state.operations || []).find(item => item.id === removed.sourceOperationId); if(op){ delete op.creditRole; delete op.prepaymentType; } } saveState(state); renderCredits(); }; });
   }
   function init(){ renderCredits(); const tab = document.querySelector('[data-tab="credits"]'); if(tab) tab.addEventListener('click', () => setTimeout(renderCredits, 0)); }
   window.addEventListener('load', init);
