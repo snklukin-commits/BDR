@@ -32,7 +32,7 @@
       } catch (_) {}
     }
     currentStoreKey = STORE_KEYS[0];
-    return { operations: Array.isArray(window.operations) ? window.operations : [] };
+    return { operations: Array.isArray(window.operations) ? window.operations : [], rules: [] };
   }
 
   function saveState(state) {
@@ -40,25 +40,14 @@
   }
 
   function money(value) {
-    return new Intl.NumberFormat('ru-RU', {
-      style: 'currency',
-      currency: 'RUB',
-      maximumFractionDigits: 0
-    }).format(Number(value) || 0);
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(Number(value) || 0);
   }
 
   function esc(value) {
-    return String(value ?? '').replace(/[&<>"]/g, ch => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;'
-    }[ch]));
+    return String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   }
 
-  function currentYear() {
-    return new Date().getFullYear();
-  }
+  function currentYear() { return new Date().getFullYear(); }
 
   function repairDate(value) {
     const text = String(value || '').trim();
@@ -77,6 +66,25 @@
     const m = fixed.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return fixed || '—';
     return `${m[3]}.${m[2]}.${String(m[1]).slice(2)}`;
+  }
+
+  function normalizeText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/\+?\d[\d\s()\-]{5,}/g, ' ')
+      .replace(/[0-9]+/g, ' ')
+      .replace(/[.,;:!?"'`~()[\]{}<>/\\|_+=*№#%&^$@]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function merchantKey(description) {
+    const normalized = normalizeText(description);
+    if (!normalized) return '';
+    const words = normalized.split(' ').filter(w => w.length > 1 && !['оплата','покупка','перевод','платеж','заказ','карта','счет','tinkoff','sber'].includes(w));
+    if (!words.length) return normalized;
+    return words.slice(0, Math.min(3, words.length)).join(' ');
   }
 
   function isActive(card) {
@@ -132,19 +140,14 @@
     requestAnimationFrame(() => {
       removeOldDrilldowns();
       const card = getSelectedCard();
-      if (!card || !isActive(card)) {
-        busy = false;
-        return;
-      }
+      if (!card || !isActive(card)) { busy = false; return; }
       const mode = card.dataset.listMode;
       const category = card.dataset.listCat;
       const ops = getRows(mode, category);
       const block = document.createElement('div');
       block.className = 'bdr-drill-below';
       block.style.cssText = 'margin:8px 0 12px;padding:12px;border-radius:20px;background:#fffaf2;box-shadow:0 10px 24px rgba(24,20,15,.08);display:grid;gap:8px';
-      block.innerHTML = ops.length
-        ? ops.map(rowHtml).join('')
-        : '<div style="padding:12px;color:#7a746b">Операций для раскрытия нет</div>';
+      block.innerHTML = ops.length ? ops.map(rowHtml).join('') : '<div style="padding:12px;color:#7a746b">Операций для раскрытия нет</div>';
       card.insertAdjacentElement('afterend', block);
       bindEditRows();
       busy = false;
@@ -159,6 +162,8 @@
     const state = readBundle();
     const op = (state.operations || []).find(item => String(item.id) === String(id));
     if (!op) return;
+    const key = merchantKey(op.description);
+    const similarCount = (state.operations || []).filter(item => merchantKey(item.description) === key).length;
     document.querySelectorAll('.bdr-sheet').forEach(x => x.remove());
     const sheet = document.createElement('div');
     sheet.className = 'bdr-sheet';
@@ -170,20 +175,58 @@
       <label style="display:grid;gap:6px;font-size:13px;color:#7a746b">Категория<select id="sheetCat">${options(CATEGORIES, op.category)}</select></label>
       <label style="display:grid;gap:6px;font-size:13px;color:#7a746b">Направление<select id="sheetDir">${options(DIRECTIONS, op.direction)}</select></label>
       <label style="display:grid;gap:6px;font-size:13px;color:#7a746b">Включать в итоги<select id="sheetInc"><option value="true" ${op.includeTotals !== false ? 'selected' : ''}>Да</option><option value="false" ${op.includeTotals === false ? 'selected' : ''}>Нет</option></select></label>
+      <label style="display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:18px;background:#fff;box-shadow:inset 0 0 0 1px rgba(23,23,23,.08);font-size:14px">
+        <input id="sheetSimilar" type="checkbox" style="width:auto;margin-top:2px">
+        <span><b>Применить ко всем похожим</b><br><span style="color:#7a746b;font-size:12px">${key ? `Шаблон: «${esc(key)}». Найдено: ${similarCount}` : 'Похожие операции не найдены'}; также будет создано правило на будущее.</span></span>
+      </label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button id="sheetCancel">Отмена</button><button id="sheetSave" class="primary">Сохранить</button></div>
     `;
     document.body.appendChild(sheet);
     document.getElementById('sheetCancel').onclick = () => sheet.remove();
     document.getElementById('sheetSave').onclick = () => {
-      op.category = document.getElementById('sheetCat').value;
-      op.direction = document.getElementById('sheetDir').value;
-      op.includeTotals = document.getElementById('sheetInc').value === 'true';
-      op.manuallyEdited = true;
-      op.date = repairDate(op.date);
+      const category = document.getElementById('sheetCat').value;
+      const direction = document.getElementById('sheetDir').value;
+      const includeTotals = document.getElementById('sheetInc').value === 'true';
+      const applySimilar = document.getElementById('sheetSimilar').checked && key;
+      let changed = 0;
+      if (applySimilar) {
+        (state.operations || []).forEach(item => {
+          if (merchantKey(item.description) === key) {
+            item.category = category;
+            item.direction = direction;
+            item.includeTotals = includeTotals;
+            item.manuallyEdited = true;
+            item.date = repairDate(item.date);
+            changed++;
+          }
+        });
+        state.rules = state.rules || [];
+        const exists = state.rules.some(rule => String(rule.pattern || '').toLowerCase() === key.toLowerCase());
+        if (!exists) {
+          state.rules.push({
+            id: 'rule_' + Date.now(),
+            enabled: true,
+            name: `${key} → ${category}`,
+            matchType: 'contains',
+            pattern: key,
+            category,
+            direction,
+            includeTotals,
+            priority: 95
+          });
+        }
+      } else {
+        op.category = category;
+        op.direction = direction;
+        op.includeTotals = includeTotals;
+        op.manuallyEdited = true;
+        op.date = repairDate(op.date);
+        changed = 1;
+      }
       saveState(state);
       sheet.remove();
       setTimeout(renderBelow, 80);
-      alert('Сохранено');
+      alert(applySimilar ? `Сохранено. Обновлено похожих операций: ${changed}. Правило создано.` : 'Сохранено');
     };
   }
 
