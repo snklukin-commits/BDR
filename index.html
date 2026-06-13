@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>БДР Money App</title>
+  <style>
+    :root { --bg:#f6f7fb; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb; --bad:#b91c1c; --good:#047857; --warn:#b45309; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:24px; background:#111827; color:white; }
+    header h1 { margin:0 0 8px; font-size:28px; }
+    header p { margin:0; color:#d1d5db; }
+    main { padding:20px; max-width:1280px; margin:auto; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+    .tab { border:1px solid var(--line); background:white; padding:10px 14px; border-radius:12px; cursor:pointer; }
+    .tab.active { background:#111827; color:white; }
+    .grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.04); }
+    .card h3 { margin:0 0 10px; font-size:14px; color:var(--muted); font-weight:500; }
+    .value { font-size:24px; font-weight:700; }
+    .section { display:none; }
+    .section.active { display:block; }
+    table { width:100%; border-collapse:collapse; background:white; border-radius:16px; overflow:hidden; }
+    th, td { border-bottom:1px solid var(--line); padding:10px; text-align:left; font-size:14px; }
+    th { background:#f3f4f6; color:#374151; }
+    input, select { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:white; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+    .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+    .empty { padding:20px; border:1px dashed #cbd5e1; border-radius:16px; background:#fff; color:#475569; }
+    @media (max-width:900px){ .grid{grid-template-columns:1fr 1fr;} }
+    @media (max-width:560px){ .grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>БДР Money App</h1>
+    <p>Дашборд бюджета, план-факт, утечки, повторяющиеся платежи и кредиты.</p>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="tab active" data-tab="dashboard">Дашборд</button>
+      <button class="tab" data-tab="plan">План-факт</button>
+      <button class="tab" data-tab="leaks">Утечки</button>
+      <button class="tab" data-tab="recurring">Повторяющиеся</button>
+      <button class="tab" data-tab="operations">Операции</button>
+      <button class="tab" data-tab="loans">Кредиты</button>
+    </div>
+
+    <section id="dashboard" class="section active">
+      <div class="toolbar"><select id="monthSelect"></select></div>
+      <div class="grid">
+        <div class="card"><h3>Доходы</h3><div id="income" class="value">0 ₽</div></div>
+        <div class="card"><h3>Расходы</h3><div id="expense" class="value">0 ₽</div></div>
+        <div class="card"><h3>Остаток</h3><div id="net" class="value">0 ₽</div></div>
+        <div class="card"><h3>Можно тратить</h3><div id="available" class="value">0 ₽</div></div>
+      </div>
+      <div class="card" style="margin-top:14px"><h3>Расходы по категориям</h3><div id="categoryTable"></div></div>
+    </section>
+
+    <section id="plan" class="section">
+      <div class="card"><h3>План-факт</h3><div id="planTable"></div></div>
+    </section>
+
+    <section id="leaks" class="section">
+      <div class="card"><h3>Потенциальные утечки</h3><div id="leaksTable"></div></div>
+    </section>
+
+    <section id="recurring" class="section">
+      <div class="card"><h3>Повторяющиеся платежи</h3><div id="recurringTable"></div></div>
+    </section>
+
+    <section id="operations" class="section">
+      <div class="toolbar">
+        <input id="searchInput" placeholder="Поиск по описанию" />
+        <select id="typeFilter"><option value="all">Все</option><option value="income">Доходы</option><option value="expense">Расходы</option></select>
+      </div>
+      <div class="card"><h3>Операции</h3><div id="operationsTable"></div></div>
+    </section>
+
+    <section id="loans" class="section">
+      <div class="card">
+        <h3>Кредитный калькулятор</h3>
+        <div class="toolbar">
+          <input id="loanPrincipal" type="number" placeholder="Остаток долга" />
+          <input id="loanRate" type="number" step="0.1" placeholder="Ставка % годовых" />
+          <input id="loanMonths" type="number" placeholder="Срок, месяцев" />
+          <input id="loanPayment" type="number" placeholder="Платёж" />
+        </div>
+        <div id="loanResult"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="rules.js"></script>
+  <script src="operations.js"></script>
+  <script>
+    const config = window.BDR_CONFIG || {};
+    const rules = window.BDR_RULES;
+    const ops = Array.isArray(window.operations) ? window.operations : [];
+    const fmt = n => new Intl.NumberFormat('ru-RU', { style:'currency', currency:'RUB', maximumFractionDigits:0 }).format(Number(n)||0);
+
+    function includedOps(){ return ops.filter(o => rules.shouldInclude(o)); }
+    function monthKey(o){ return rules.monthKey(o); }
+    function amount(o){ return Math.abs(rules.normalizeAmount(o.amount ?? o['Сумма'])); }
+    function category(o){ return rules.getCategory(o); }
+    function kind(o){ return rules.classify(o); }
+
+    function allMonths(){
+      const list = [...new Set(includedOps().map(monthKey))].filter(Boolean).sort();
+      return list.length ? list : ['Все'];
+    }
+
+    function selectedMonth(){ return document.getElementById('monthSelect').value || allMonths().at(-1); }
+    function visibleOps(){ const m = selectedMonth(); return includedOps().filter(o => m === 'Все' || monthKey(o) === m); }
+
+    function summarize(list){
+      const s = { income:0, expense:0, refund:0, byCat:{} };
+      for (const o of list) {
+        const k = kind(o), a = amount(o), c = category(o);
+        if (k === 'income') s.income += a;
+        if (k === 'expense') { s.expense += a; s.byCat[c] = (s.byCat[c] || 0) + a; }
+        if (k === 'refund') { s.refund += a; s.expense -= a; s.byCat[c] = (s.byCat[c] || 0) - a; }
+      }
+      return s;
+    }
+
+    function table(rows, emptyText='Нет данных'){
+      if (!rows.length) return `<div class="empty">${emptyText}. Добавьте данные в operations.js.</div>`;
+      return `<table>${rows.join('')}</table>`;
+    }
+
+    function renderDashboard(){
+      const s = summarize(visibleOps());
+      const mandatory = Object.entries(s.byCat).filter(([c]) => (config.mandatoryCategories||[]).includes(c)).reduce((a,[,v]) => a+v,0);
+      const planned = Object.values(config.monthlyPlans || {}).reduce((a,v)=>a+(Number(v)||0),0);
+      const available = s.income - mandatory - planned - (Number(config.reserveTarget)||0);
+      income.textContent = fmt(s.income); expense.textContent = fmt(s.expense); net.textContent = fmt(s.income - s.expense); available.textContent = fmt(available);
+      const rows = ['<tr><th>Категория</th><th>Сумма</th></tr>', ...Object.entries(s.byCat).sort((a,b)=>b[1]-a[1]).map(([c,v]) => `<tr><td>${c}</td><td>${fmt(v)}</td></tr>`)];
+      categoryTable.innerHTML = table(rows);
+    }
+
+    function renderPlan(){
+      const s = summarize(visibleOps());
+      const cats = Object.keys(config.monthlyPlans || {});
+      const rows = ['<tr><th>Категория</th><th>План</th><th>Факт</th><th>Отклонение</th></tr>', ...cats.map(c => {
+        const plan = Number(config.monthlyPlans[c]) || 0, fact = s.byCat[c] || 0, diff = plan - fact;
+        const cls = diff < 0 ? 'bad' : 'good';
+        return `<tr><td>${c}</td><td>${fmt(plan)}</td><td>${fmt(fact)}</td><td class="${cls}">${fmt(diff)}</td></tr>`;
+      })];
+      planTable.innerHTML = table(rows);
+    }
+
+    function renderLeaks(){
+      const s = summarize(visibleOps());
+      const rows = ['<tr><th>Категория</th><th>Сумма</th><th>Комментарий</th></tr>', ...Object.entries(s.byCat).filter(([c]) => (config.leakCategories||[]).includes(c)).sort((a,b)=>b[1]-a[1]).map(([c,v]) => `<tr><td>${c}</td><td>${fmt(v)}</td><td class="warn">Проверить необходимость</td></tr>`)];
+      leaksTable.innerHTML = table(rows, 'Утечки не найдены');
+    }
+
+    function renderRecurring(){
+      const groups = {};
+      for (const o of includedOps()) {
+        const key = `${category(o)}|${String(o.description || o['Описание'] || '').slice(0,40)}`;
+        groups[key] = groups[key] || { count:0, total:0, cat:category(o), name:String(o.description || o['Описание'] || '') };
+        groups[key].count += 1; groups[key].total += amount(o);
+      }
+      const rows = ['<tr><th>Описание</th><th>Категория</th><th>Повторов</th><th>Сумма</th></tr>', ...Object.values(groups).filter(x=>x.count>=2).sort((a,b)=>b.total-a.total).map(x=>`<tr><td>${x.name}</td><td>${x.cat}</td><td>${x.count}</td><td>${fmt(x.total)}</td></tr>`)];
+      recurringTable.innerHTML = table(rows, 'Повторяющиеся платежи не найдены');
+    }
+
+    function renderOperations(){
+      const q = searchInput.value.toLowerCase();
+      const tf = typeFilter.value;
+      const rows = ['<tr><th>Дата</th><th>Описание</th><th>Категория</th><th>Тип</th><th>Сумма</th></tr>', ...visibleOps().filter(o => !q || String(o.description || o['Описание'] || '').toLowerCase().includes(q)).filter(o => tf==='all' || kind(o)===tf).slice(0,300).map(o => `<tr><td>${o.date || o['Дата'] || ''}</td><td>${o.description || o['Описание'] || ''}</td><td>${category(o)}</td><td>${kind(o)}</td><td>${fmt(amount(o))}</td></tr>`)];
+      operationsTable.innerHTML = table(rows);
+    }
+
+    function renderLoan(){
+      const p = Number(loanPrincipal.value || config.loan?.principal || 0);
+      const r = Number(loanRate.value || config.loan?.annualRate || 0) / 100 / 12;
+      const n = Number(loanMonths.value || config.loan?.months || 0);
+      const pay = Number(loanPayment.value || config.loan?.monthlyPayment || 0);
+      let bal = p, interest = 0, months = 0;
+      while (bal > 0 && months < 600 && pay > 0) { const i = bal*r; interest += i; bal = Math.max(0, bal + i - pay); months++; }
+      loanResult.innerHTML = `<p>Расчётный срок: <b>${months}</b> мес. Переплата: <b>${fmt(interest)}</b>.</p>`;
+    }
+
+    function init(){
+      monthSelect.innerHTML = allMonths().map(m => `<option>${m}</option>`).join('');
+      monthSelect.value = allMonths().at(-1);
+      document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.section').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.getElementById(b.dataset.tab).classList.add('active'); renderAll();});
+      [monthSelect, searchInput, typeFilter, loanPrincipal, loanRate, loanMonths, loanPayment].forEach(el=>el && el.addEventListener('input', renderAll));
+      renderAll();
+    }
+    function renderAll(){ renderDashboard(); renderPlan(); renderLeaks(); renderRecurring(); renderOperations(); renderLoan(); }
+    init();
+  </script>
+</body>
+</html>
