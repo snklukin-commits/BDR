@@ -2,14 +2,8 @@
   'use strict';
 
   const STORE_KEYS = [
-    'bdr.money.app.v10',
-    'bdr.money.app.v9',
-    'bdr.money.app.v8',
-    'bdr.money.app.v7',
-    'bdr.money.app.v6',
-    'bdr.money.app.v5',
-    'bdr.money.app.v4',
-    'bdr.money.app.v3'
+    'bdr.money.app.v10','bdr.money.app.v9','bdr.money.app.v8','bdr.money.app.v7',
+    'bdr.money.app.v6','bdr.money.app.v5','bdr.money.app.v4','bdr.money.app.v3'
   ];
 
   const CATEGORIES = [
@@ -70,13 +64,11 @@
 
   function normalizeText(value) {
     return String(value || '')
-      .toLowerCase()
-      .replace(/ё/g, 'е')
+      .toLowerCase().replace(/ё/g, 'е')
       .replace(/\+?\d[\d\s()\-]{5,}/g, ' ')
       .replace(/[0-9]+/g, ' ')
       .replace(/[.,;:!?"'`~()[\]{}<>/\\|_+=*№#%&^$@]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+      .replace(/\s+/g, ' ').trim();
   }
 
   function merchantKey(description) {
@@ -110,8 +102,9 @@
     return (state.operations || [])
       .filter(op => op && op.category === category)
       .filter(op => op.includeTotals !== false)
+      .filter(op => Math.abs(Number(op.amount) || 0) > 0.009)
       .filter(op => directionOk(mode, op))
-      .slice(0, 12);
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   }
 
   function rowHtml(op) {
@@ -202,19 +195,7 @@
         });
         state.rules = state.rules || [];
         const exists = state.rules.some(rule => String(rule.pattern || '').toLowerCase() === key.toLowerCase());
-        if (!exists) {
-          state.rules.push({
-            id: 'rule_' + Date.now(),
-            enabled: true,
-            name: `${key} → ${category}`,
-            matchType: 'contains',
-            pattern: key,
-            category,
-            direction,
-            includeTotals,
-            priority: 95
-          });
-        }
+        if (!exists) state.rules.push({ id:'rule_'+Date.now(), enabled:true, name:`${key} → ${category}`, matchType:'contains', pattern:key, category, direction, includeTotals, priority:95 });
       } else {
         op.category = category;
         op.direction = direction;
@@ -232,10 +213,7 @@
 
   function bindEditRows() {
     document.querySelectorAll('[data-edit-op]').forEach(button => {
-      button.onclick = event => {
-        event.stopPropagation();
-        openEditor(button.dataset.editOp);
-      };
+      button.onclick = event => { event.stopPropagation(); openEditor(button.dataset.editOp); };
     });
   }
 
@@ -257,20 +235,11 @@
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-list-mode][data-list-cat], [data-chart-mode][data-chart-cat]');
     if (!target) return;
-    last = {
-      mode: target.dataset.listMode || target.dataset.chartMode,
-      category: target.dataset.listCat || target.dataset.chartCat
-    };
+    last = { mode: target.dataset.listMode || target.dataset.chartMode, category: target.dataset.listCat || target.dataset.chartCat };
     setTimeout(renderBelow, 80);
     setTimeout(renderBelow, 250);
   }, true);
 
-  new MutationObserver(() => {
-    if (last) setTimeout(renderBelow, 40);
-  }).observe(document.body, { childList: true, subtree: true });
-
-  window.addEventListener('load', () => {
-    repairExistingDates();
-    setTimeout(renderBelow, 500);
-  });
+  new MutationObserver(() => { if (last) setTimeout(renderBelow, 40); }).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('load', () => { repairExistingDates(); setTimeout(renderBelow, 500); });
 })();
