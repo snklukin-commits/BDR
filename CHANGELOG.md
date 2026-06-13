@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.1.0
+
+- Added editable categorization rules inside the Management tab.
+- Added rule fields: name, match type, pattern, category, direction, include in totals and priority.
+- Added local AI-like rule suggestions based on repeated unknown operations.
+- Added recategorization action for all non-manually edited operations.
+- Improved visual design toward a modern finance dashboard.
+- Added safer note that real external AI requires a server layer and must not store API keys in the browser.
+
 ## 3.0.0
 
 - Rebuilt the project as a personal BDR manager, not a simple summation page.
