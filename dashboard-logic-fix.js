@@ -160,8 +160,6 @@
     const avg = averageMonthly(ops);
     const data = mode === 'avg' ? avg : total;
     const label = mode === 'avg' ? 'Среднемесячно' : 'Итого за период';
-    const monthsCount = months(ops).length;
-    const creditNote = total.creditInfo ? `<div class="muted" style="font-size:12px;margin-top:8px">Кредиты/ипотека исключены из общих расчётов: ${money(total.creditInfo)} справочно.</div>` : '';
 
     return `<div id="bdrDashPanel" class="card" style="background:#fff;box-shadow:0 12px 32px rgba(24,20,15,.08)">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px">
@@ -174,11 +172,9 @@
       <div class="grid">
         <div><div class="kpi-title">Обычные доходы</div><div class="value">${money(data.ordinaryIncome)}</div></div>
         <div><div class="kpi-title">Стабильные доходы</div><div class="value">${money(data.stableIncome)}</div></div>
-        <div><div class="kpi-title">Рутина без кредитов</div><div class="value">${money(data.routine)}</div></div>
+        <div><div class="kpi-title">Рутина</div><div class="value">${money(data.routine)}</div></div>
         <div><div class="kpi-title">ЖКХ</div><div class="value">${money(data.zhkh)}</div></div>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:8px">Месяцев в расчёте: ${monthsCount || 0}. Кредиты и ипотека не входят в общие доходы/расходы.</div>
-      ${creditNote}
     </div>`;
   }
 
