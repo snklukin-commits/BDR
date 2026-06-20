@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.3.0
+
+- Reworked Operations into a single functional workspace with filters, manual entry and inline editing.
+- Added transaction splitting into two category parts while excluding the original operation from totals.
+- Rebuilt Credits into a portfolio view with summary KPIs, manual credit creation and linked payment operations.
+- Added backend API settings, bank sync endpoint hook and remote AI categorization endpoint hook.
+- Removed the extra first-run import CTA so import/connect actions live in Management.
+
+## 3.2.0
+
+- Added a product-style onboarding screen for first launch without imported data.
+- Added a financial health score, expense load progress and top spending insight on the dashboard.
+- Added a monthly control card with month balance, operation count and attention hints.
+- Added editable monthly reserve target in Management that affects the required cut amount.
+- Refined branding, header status and responsive visual polish for a more complete app feel.
+
 ## 3.1.0
 
 - Added editable categorization rules inside the Management tab.
