@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: bss-mail-ai
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: IMAP_HOST
+        value: mx03.bsspharm.ru
+      - key: IMAP_PORT
+        value: 993
+      - key: IMAP_USE_SSL
+        value: true
+      - key: SMTP_HOST
+        value: mx03.bsspharm.ru
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_STARTTLS
+        value: true
+      - key: CHECK_INTERVAL_SECONDS
+        value: 300
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: MAIL_USER
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
