@@ -1,0 +1,7 @@
+.env
+*.sqlite3
+mail_ai.sqlite3
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
